@@ -201,6 +201,7 @@ class RealMCPWebSocketServer:
             final_result = ""
 
             async for item in self.agent.stream(message):
+                # Handle dictionary items (structured responses)
                 if isinstance(item, dict):
                     if item.get("type") == "tool_call":
                         step_count += 1
@@ -243,6 +244,23 @@ class RealMCPWebSocketServer:
 
                     elif item.get("type") == "ai_message":
                         content = item.get("content", "")
+
+                        # Handle both string and list content types
+                        if isinstance(content, list):
+                            # Convert list to string
+                            content_str = ""
+                            for item_content in content:
+                                if isinstance(item_content, dict):
+                                    # Handle structured content (e.g., {"type": "text", "text": "..."})
+                                    if item_content.get("type") == "text":
+                                        content_str += item_content.get("text", "")
+                                elif isinstance(item_content, str):
+                                    content_str += item_content
+                            content = content_str
+                        elif not isinstance(content, str):
+                            # Convert other types to string
+                            content = str(content)
+
                         if content and len(content.strip()) > 10:  # Only show substantial AI reasoning
                             content_preview = content[:100] + "..." if len(content) > 100 else content
                             content_preview = content_preview.replace('\n', ' ')
@@ -259,10 +277,38 @@ class RealMCPWebSocketServer:
                                 "level": "info"
                             })
 
+                        # Check if this AI message contains the final result
+                        if content and content.strip():
+                            final_result = content
+
+                    elif item.get("type") == "final_result":
+                        # Handle explicit final result
+                        final_result = str(item.get("content", ""))
+                        break
+
+                # Handle string items (direct results)
                 elif isinstance(item, str):
-                    # Final result
                     final_result = item
                     break
+
+                # Handle other types
+                else:
+                    # Convert to string and treat as potential final result
+                    result_str = str(item).strip()
+                    if result_str and len(result_str) > 10:
+                        final_result = result_str
+
+            # If we still don't have a final result, try to get it from the agent
+            if not final_result or final_result.strip() == "":
+                await self.send_to_client(websocket, {
+                    "type": "log",
+                    "message": "🔄 No streaming result, running agent.run() for final answer...",
+                    "level": "info"
+                })
+                try:
+                    final_result = await self.agent.run(message)
+                except Exception as e:
+                    final_result = f"Error getting final result: {str(e)}"
 
             # Send STEALTH completion summary
             await self.send_to_client(websocket, {
@@ -275,7 +321,7 @@ class RealMCPWebSocketServer:
             # Send final result
             await self.send_to_client(websocket, {
                 "type": "chat_response",
-                "message": final_result or "STEALTH mission completed but produced no output."
+                "message": final_result or "STEALTH mission completed but no result was captured."
             })
 
             await self.send_to_client(websocket, {

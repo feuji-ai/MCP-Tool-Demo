@@ -1,0 +1,18 @@
+Navigate to https://saucedemo.com
+
+use the credentials:
+Username: standard_user
+Password: secret_sauce
+Click on Login Button
+
+Now List all the product you can see in the Product Page return them as json format of products with prices and description
+Output JSON Format:
+{
+  "products": [
+    {
+      "name": "",
+      "price": "",
+      "description": ""
+    }
+  ]
+}
